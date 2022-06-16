@@ -1,0 +1,9 @@
+{
+  "name": "floofTrainTubes",
+  "version": "0.0.3",
+  "title": "Train Conveyor Tubes",
+  "author": "FluffyJenkins",
+  "factorio_version": "1.1",
+  "dependencies": ["base >= 1.1"],
+  "description": "Conveyor system for Trains!"
+}
