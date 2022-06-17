@@ -202,15 +202,11 @@ local function toggleConfigButtons(event, visible)
 end
 
 local function on_gui_opened(event)
-	--fUtil.debug("opened", "on_gui_opened")
 	local player = game.players[event.player_index]
-	local playerGUI = player.gui.relative
 
 	if event.entity and allowedNamed[event.entity.type] ~= nil then
 		initCheck(event)
 		createConfigButtons(event)
-		--createConfigWindow(event)
-		--fUtil.debug("allowed", "on_gui_opened")
 		local ent = event.entity
 		local valid = isValid(ent)
 		toggleConfigButtons(event, valid)
@@ -218,9 +214,7 @@ local function on_gui_opened(event)
 end
 
 local function on_gui_closed(event)
-	--fUtil.debug("closed", "on_gui_closed")
 	local player = game.players[event.player_index]
-	local playerGUI = player.gui.relative
 	floofGui.hideConfigWindow(event)
 	if event.entity then
 		local ent = event.entity
@@ -238,20 +232,17 @@ end
 
 local function on_gui_click(event)
 
-	-- fUtil.debug(event, "on_gui_click")
 	local gPlayerGUI = floofTubes.players[event.player_index].gui
 	if gPlayerGUI.configButtons[event.element.name] or (event.element and event.element.parent and event.element.parent.parent and
 		event.element.parent.parent.name == "floof:tubeConfigWindow" and event.element.name == "close_button") then
-		--fUtil.debug("passed " .. event.element.name, "on_gui_click")
-		toggleConfigUI(event, not (gPlayerGUI.tubeConfigWindow and gPlayerGUI.tubeConfigWindow.base.visible)) --(game.players[event.player_index].gui.screen["floof:tubeConfigWindow"] == nil))
+		toggleConfigUI(event, not (gPlayerGUI.tubeConfigWindow and gPlayerGUI.tubeConfigWindow.base.visible))
 	end
 end
 
 local function on_gui_switch_state_changed(event)
 	if event.element.valid and event.element.get_mod() == "floofTrainTubes" then
 		local ent = findCorrectEntity(event)
-		---@diagnostic disable-next-line
-		if ent == nil or floofTubes.inventories[ent.unit_number] == nil then return end
+		if ent == nil or ent and floofTubes.inventories[ent.unit_number] == nil then return end
 		local elem = event.element
 		local gPlayerGUI = floofTubes.players[event.player_index].gui
 		if isAPartOfConfigWindow(gPlayerGUI, elem) then
@@ -284,7 +275,6 @@ end
 
 local function on_player_placed_equipment(event)
 	local player = game.players[event.player_index]
-	local gPlayer = floofTubes.players[event.player_index]
 	local ent = player.opened
 	if isValid(ent) and isGUIType(player) and isValidEquipment(event.equipment.name) then
 		toggleConfigButtons(event, true)
@@ -320,8 +310,6 @@ local function on_player_removed_equipment(event)
 			invent.pull = false
 			floofGui.hideConfigWindow(event)
 			toggleConfigButtons(event, false)
-			-- UICheck(event)
-			-- floofTubes.inventories[ent.unit_number] = nil
 			fUtil.debug("All tubes has been removed from a grid!")
 		end
 	end
@@ -346,7 +334,7 @@ local function on_train_created(event)
 		end
 	end
 end
-
+local itemPrototypes = game.item_prototypes
 local function genRequests()
 
 	function getFilterSafe(invent, slotIndex)
@@ -364,7 +352,7 @@ local function genRequests()
 		if itemStack.valid_for_read then
 			iS = { item = itemStack, name = itemStack.name, count = itemStack.count, max = itemStack.prototype.stack_size }
 		else
-			iS = { item = itemStack, name = slotFilter, count = 0, max = game.item_prototypes[slotFilter].stack_size, set = itemStack.can_set_stack(slotFilter) }
+			iS = { item = itemStack, name = slotFilter, count = 0, max = itemPrototypes[slotFilter].stack_size, set = itemStack.can_set_stack(slotFilter) }
 		end
 		if iS.count < iS.max then
 			local needed = iS.max - iS.count
@@ -389,7 +377,7 @@ local function genRequests()
 					if counts[itemName] then
 						counts[itemName].needed = counts[itemName].needed + counts[itemName].prototype.stack_size
 					else
-						counts[itemName] = { name = itemName, prototype = game.item_prototypes[itemName], needed = game.item_prototypes[itemName].stack_size }
+						counts[itemName] = { name = itemName, prototype = itemPrototypes[itemName], needed = itemPrototypes[itemName].stack_size }
 					end
 				end
 			end
@@ -487,7 +475,6 @@ local function calc(available, needed, totalNeeded, max)
 
 end
 
--- TODO ADD SPACE CHECKS TO ABORT IF NOT ENOUGH SPACE!
 local function processRequests(requestList)
 
 	local function inInternalFilter(internalFilter, internalKey)
@@ -629,6 +616,7 @@ local function on_configuration_changed(event)
 
 end
 
-script.on_init(on_init)
-script.on_configuration_changed(on_configuration_changed)
 script.on_load(on_load)
+script.on_configuration_changed(on_configuration_changed)
+
+script.on_init(on_init)
