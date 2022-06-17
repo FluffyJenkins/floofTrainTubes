@@ -1,6 +1,7 @@
 
 local requestLimiter = 1e6
 local requestRate = 300
+local itemPrototypes
 
 local default_config = {
 	fill = {
@@ -332,7 +333,7 @@ local function on_train_created(event)
 		end
 	end
 end
-local itemPrototypes = game.item_prototypes
+
 local function genRequests()
 
 	function getFilterSafe(invent, slotIndex)
@@ -591,6 +592,8 @@ end
 local function on_load()
 	floofTubes = global.floofTubes
 	floofGui.floofTubes = global.floofTubes
+
+	itemPrototypes = game.item_prototypes
 
 	requestLimiter = settings.global["floofTrainTubes-requestLimiter"]
 	requestRate = settings.global["floofTrainTubes-requestRate"]
