@@ -1,8 +1,6 @@
---[[
-TODO:
-Make tube button show up on artillery and loco (might be easier to just make seperate buttons for
-each type!
-]]
+
+local requestLimiter = 1e6
+local requestRate = 300
 
 local default_config = {
 	fill = {
@@ -541,6 +539,7 @@ local function processRequests(requestList)
 					if i.entity.unit_number ~= stack.source_unit_number then
 						local invent = i.inventory
 						local requestCount = getValidItemCount(requestKey, i, invent) -- invent.get_item_count(requestKey)
+						requestCount = math.min(requestCount,requestLimiter)
 						if requestCount ~= 0 then
 							local amount = 0
 							if requestCount >= request.totalNeeded then -- has more then/equal needed
@@ -572,7 +571,7 @@ end
 
 local function on_tick(event)
 
-	if event.tick % 300 == 0 then
+	if event.tick % requestRate == 0 then
 		local requests = genRequests()
 		processRequests(requests)
 	end
@@ -592,6 +591,9 @@ end
 local function on_load()
 	floofTubes = global.floofTubes
 	floofGui.floofTubes = global.floofTubes
+
+	requestLimiter = settings.global["floofTrainTubes-requestLimiter"]
+	requestRate = settings.global["floofTrainTubes-requestRate"]
 
 	script.on_event(defines.events.on_tick, on_tick)
 
@@ -616,7 +618,19 @@ local function on_configuration_changed(event)
 
 end
 
+local function on_runtime_mod_setting_changed(event)
+	if event.setting_type == "runtime-global" then
+		if event.setting == "floofTrainTubes-requestLimiter" then
+			requestLimiter = settings.global["floofTrainTubes-requestLimiter"]
+		end
+		if event.setting == "floofTrainTubes-requestRate" then
+			requestRate = settings.global["floofTrainTubes-requestRate"]
+		end
+	end
+end
+
 script.on_load(on_load)
 script.on_configuration_changed(on_configuration_changed)
+script.on_event(defines.events.on_runtime_mod_setting_changed,on_runtime_mod_setting_changed)
 
 script.on_init(on_init)
