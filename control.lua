@@ -1,4 +1,3 @@
-
 local requestLimiter = 1e6
 local requestRate = 300
 
@@ -69,8 +68,19 @@ local function hasTube(grid)
 	return contents["floof:conveyorTubeOut"] or contents["floof:conveyorTubeIn"]
 end
 
-local function isValid(ent)
-	return ent.grid and hasTube(ent.grid)
+local function isValidEntityFromEvent(event)
+	local player = game.players[event.player_index]
+	local grid = nil
+	if player and player.opened then
+		local object_name = player.opened.object_name
+		if object_name == "LuaEquipmentGrid" then
+			grid = player.opened
+		elseif object_name == "LuaEntity" then
+			grid = player.opened.grid or nil
+		end
+	end
+	local ent = player.opened -- and event.entity and player.opened or player.opened and player.opened.grid and (event.grid == player.opened.grid) and player.opened or nil
+	return ent and grid and hasTube(grid)
 end
 
 local function isAPartOfConfigWindow(gPlayerGUI, elem)
@@ -90,11 +100,11 @@ end
 
 local function findCorrectEntity(event)
 	local ent = false
-	if event.entity and isValid(event.entity) then
+	if event.entity and isValidEntityFromEvent(event) then
 		ent = event.entity
 	else
 		local player = game.players[event.player_index]
-		if player.opened and player.opened.unit_number and isValid(player.opened) then
+		if player.opened and player.opened.unit_number and (player.opened.grid and hasTube(player.opened.grid)) then
 			ent = player.opened
 		end
 	end
@@ -206,7 +216,7 @@ local function on_gui_opened(event)
 		initCheck(event)
 		createConfigButtons(event)
 		local ent = event.entity
-		local valid = isValid(ent)
+		local valid = isValidEntityFromEvent(event)
 		toggleConfigButtons(event, valid)
 	end
 end
@@ -216,7 +226,7 @@ local function on_gui_closed(event)
 	floofGui.hideConfigWindow(event)
 	if event.entity then
 		local ent = event.entity
-		if allowedNamed[ent.type] ~= nil and isValid(ent) then
+		if allowedNamed[ent.type] ~= nil and isValidEntityFromEvent(event) then
 			toggleConfigUI(event, false)
 		end
 	end
@@ -274,7 +284,7 @@ end
 local function on_player_placed_equipment(event)
 	local player = game.players[event.player_index]
 	local ent = player.opened
-	if isValid(ent) and isGUIType(player) and isValidEquipment(event.equipment.name) then
+	if isValidEntityFromEvent(event) and isGUIType(player) and isValidEquipment(event.equipment.name) then
 		toggleConfigButtons(event, true)
 		initCheck(event)
 		local invent = floofTubes.inventories[ent.unit_number]
@@ -293,8 +303,8 @@ end
 
 local function on_player_removed_equipment(event)
 	local player = game.players[event.player_index]
-	local ent = player.opened
-	if ent.grid and isGUIType(player) and isValidEquipment(event.equipment) then
+	local ent = player.opened and event.entity and player.opened or nil
+	if ent and ent.grid and isGUIType(player) and isValidEquipment(event.equipment) then
 		if hasTube(ent.grid) then
 			local invent = floofTubes.inventories[ent.unit_number]
 			if event.equipment == "floof:conveyorTubeIn" then invent.pull = false end
@@ -493,10 +503,10 @@ local function processRequests(requestList)
 		for slotIndex = 1, #invent do
 			local slot = invent[slotIndex]
 			if slot.valid_for_read and slot.name == key then
-				local a = (filteredSlots and getFilterSafe(invent,slotIndex) == key and not filteredInternal)
+				local a = (filteredSlots and getFilterSafe(invent, slotIndex) == key and not filteredInternal)
 				local b = (filteredInternal and inInternalFilter(i.config.pull.internalFilter, key) and not filteredSlots)
-				local c = (not filteredInternal and not filteredSlots) and getFilterSafe(invent,slotIndex) == nil
-				local d = (filteredInternal and filteredSlots) and (inInternalFilter(i.config.pull.internalFilter, key) or getFilterSafe(invent,slotIndex) == key)
+				local c = (not filteredInternal and not filteredSlots) and getFilterSafe(invent, slotIndex) == nil
+				local d = (filteredInternal and filteredSlots) and (inInternalFilter(i.config.pull.internalFilter, key) or getFilterSafe(invent, slotIndex) == key)
 				if (a or b or c or d) then
 					totalCount = totalCount + slot.count
 				end
@@ -512,10 +522,10 @@ local function processRequests(requestList)
 		for slotIndex = 1, #invent do
 			local slot = invent[slotIndex]
 			if slot.valid_for_read and slot.name == key and slot.count ~= 0 then
-				local a = (filteredSlots and getFilterSafe(invent,slotIndex) == key and not filteredInternal)
+				local a = (filteredSlots and getFilterSafe(invent, slotIndex) == key and not filteredInternal)
 				local b = (filteredInternal and inInternalFilter(i.config.pull.internalFilter, key) and not filteredSlots)
-				local c = (not filteredInternal and not filteredSlots) and getFilterSafe(invent,slotIndex) == nil
-				local d = (filteredInternal and filteredSlots) and (inInternalFilter(i.config.pull.internalFilter, key) or getFilterSafe(invent,slotIndex) == key)
+				local c = (not filteredInternal and not filteredSlots) and getFilterSafe(invent, slotIndex) == nil
+				local d = (filteredInternal and filteredSlots) and (inInternalFilter(i.config.pull.internalFilter, key) or getFilterSafe(invent, slotIndex) == key)
 				if (a or b or c or d) then
 
 					if slot.count > amount then
@@ -540,7 +550,7 @@ local function processRequests(requestList)
 					if i.entity.unit_number ~= stack.source_unit_number then
 						local invent = i.inventory
 						local requestCount = getValidItemCount(requestKey, i, invent) -- invent.get_item_count(requestKey)
-						requestCount = math.min(requestCount,requestLimiter)
+						requestCount = math.min(requestCount, requestLimiter)
 						if requestCount ~= 0 then
 							local amount = 0
 							if requestCount >= request.totalNeeded then -- has more then/equal needed
@@ -593,8 +603,8 @@ local function on_load()
 	floofTubes = global.floofTubes
 	floofGui.floofTubes = global.floofTubes
 
-	requestLimiter = settings.global["floofTrainTubes-requestLimiter"]
-	requestRate = settings.global["floofTrainTubes-requestRate"]
+	requestLimiter = settings.global["floofTrainTubes-requestLimiter"].value
+	requestRate = settings.global["floofTrainTubes-requestRate"].value
 
 	script.on_event(defines.events.on_tick, on_tick)
 
@@ -632,6 +642,6 @@ end
 
 script.on_load(on_load)
 script.on_configuration_changed(on_configuration_changed)
-script.on_event(defines.events.on_runtime_mod_setting_changed,on_runtime_mod_setting_changed)
+script.on_event(defines.events.on_runtime_mod_setting_changed, on_runtime_mod_setting_changed)
 
 script.on_init(on_init)

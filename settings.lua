@@ -1,8 +1,8 @@
 data:extend({
     {
         type = "int-setting",
-        name = "floofTubeTubesSetting-requestLimiter",
-        localised_name = {"floofTubeTubesSetting.requestLimiter"},
+        name = "floofTrainTubes-requestLimiter",
+        localised_name = {"floofTrainTubesSetting.requestLimiter"},
         setting_type = "runtime-global",
         minimum_value = 1,
         default_value = 400,
@@ -10,7 +10,7 @@ data:extend({
     },
     {
         type = "int-setting",
-        name = "floofTubeTubesSetting-requestRate",
+        name = "floofTrainTubes-requestRate",
         localised_name = {"floofTubeTubesSetting.requestRate"},
         setting_type = "runtime-global",
         minimum_value = 10,
