@@ -57,6 +57,7 @@ local floofTubes = {
 }
 
 floofGui = require("scripts.floofGui")
+floofLogic = require("scripts.floofLogic")
 
 fUtil = require("scripts.floofUtils")
 fUtil.debugMode = true
@@ -125,38 +126,57 @@ local function getPlayerConfig(event, ent, newSide)
 	return default_config
 end
 
+local function getInventoryFromGrid(grid)
+	for _, invent in pairs(floofTubes.inventories) do
+		if invent.entity and invent.entity.valid and invent.entity.grid and invent.entity.grid == grid then
+			return invent
+		end
+	end
+	return nil
+end
+
+local function initEnt(ent)
+	floofTubes.inventories[ent.unit_number] = {
+		unit_number = ent.unit_number,
+		inventory = ent.get_inventory(defines.inventory.chest),
+		entity = ent,
+		---@diagnostic disable-next-line:undefined-field
+		config = table.deepcopy(default_config),
+		train = ent.train,
+		train_id = ent.train.id,
+		fill = false,
+		pull = false,
+	}
+end
+
+local function initPlayer(event)
+	local player = game.players[event.player_index]
+	if player then
+		if not floofTubes.players[event.player_index] then
+			floofTubes.players[event.player_index] = {
+				gui = {
+					tubeConfigWindow = {},
+					tubeConfigControls = {},
+					configButtons = {},
+				},
+				player_index = event.player_index
+			}
+		end
+
+		if not player.gui.screen["floof:tubeConfigWindow"] then
+			floofGui.buildWindow(event, false)
+		end
+	end
+end
+
 local function initCheck(event, playerOnly)
 	-- TODO write init checks for globals and if not existing create them (might need some more default templates)
 	local ent = findCorrectEntity(event)
-	local player = game.players[event.player_index]
 	if playerOnly ~= true and ent and not floofTubes.inventories[ent.unit_number] then
-		floofTubes.inventories[ent.unit_number] = {
-			unit_number = ent.unit_number,
-			inventory = ent.get_inventory(defines.inventory.chest),
-			entity = ent,
-			---@diagnostic disable-next-line:undefined-field
-			config = table.deepcopy(default_config),
-			train = ent.train,
-			train_id = ent.train.id,
-			fill = false,
-			pull = false,
-		}
+		initEnt(ent)
 	end
 
-	if player and not floofTubes.players[event.player_index] then
-		floofTubes.players[event.player_index] = {
-			gui = {
-				tubeConfigWindow = {},
-				tubeConfigControls = {},
-				configButtons = {},
-			},
-			player_index = event.player_index
-		}
-	end
-
-	if not player.gui.screen["floof:tubeConfigWindow"] then
-		floofGui.buildWindow(event, false)
-	end
+	initPlayer(event)
 end
 
 local function toggleConfigUI(event, visible)
@@ -343,253 +363,46 @@ local function on_train_created(event)
 	end
 end
 
-local function genRequests()
-	local itemPrototypes = game.item_prototypes
-
-	function getFilterSafe(invent, slotIndex)
-		if invent.is_filtered() then
-			return invent.get_filter(slotIndex)
-		end
-		return nil
-	end
-
-	local requestList = {
-	}
-
-	local function newRequestFromItemStack(requests, itemStack, slotFilter, i) --i = for entity.unit_number
-		local iS = {}
-		if itemStack.valid_for_read then
-			iS = { item = itemStack, name = itemStack.name, count = itemStack.count, max = itemStack.prototype.stack_size }
-		else
-			iS = { item = itemStack, name = slotFilter, count = 0, max = itemPrototypes[slotFilter].stack_size, set = itemStack.can_set_stack(slotFilter) }
-		end
-		if iS.count < iS.max then
-			local needed = iS.max - iS.count
-
-			if not requests[iS.name] then
-				requests[iS.name] = { stacks = { { item = iS, source_unit_number = i.entity.unit_number, needed = needed, factor = needed / iS.max } }, totalNeeded = iS.max - iS.count }
-			else
-				requests[iS.name].totalNeeded = requests[iS.name].totalNeeded + (iS.max - iS.count)
-				requests[iS.name].stacks[#requests[iS.name].stacks + 1] = { item = iS, source_unit_number = i.entity.unit_number, needed = needed, factor = needed / iS.max }
-			end
-		end
-		return requests
-	end
-
-	for _, i in pairs(floofTubes.inventories) do
-		if i.fill and i.entity.valid then
-
-			local counts = {}
-
-			for _, itemName in pairs(i.config.fill.internalFilter) do
-				if itemName ~= "_blank_" then
-					if counts[itemName] then
-						counts[itemName].needed = counts[itemName].needed + counts[itemName].prototype.stack_size
-					else
-						counts[itemName] = { name = itemName, prototype = itemPrototypes[itemName], needed = itemPrototypes[itemName].stack_size }
-					end
-				end
-			end
-
-			if i.config.fill.onlyFilteredSlots and i.inventory.is_filtered() or i.config.fill.onlyInternalFilter then
-				if not requestList[i.entity.train.id] then
-					requestList[i.entity.train.id] = {}
-				end
-				requests = requestList[i.entity.train.id]
-				local invent = i.inventory
-				for slotIndex = 1, #invent do
-					local itemStack = invent[slotIndex]
-					local slotFilter = getFilterSafe(invent, slotIndex) or nil
-
-					if i.config.fill.onlyInternalFilter and (not i.config.fill.onlyFilteredSlots and slotFilter == nil or i.config.fill.onlyFilteredSlots) and itemStack.valid_for_read then
-						if counts[itemStack.name] then
-							local countItem = counts[itemStack.name]
-							if itemStack.count < itemStack.prototype.stack_size then
-								if not countItem.stacks then
-									countItem.stacks = { itemStack }
-								else
-									countItem.stacks[#countItem.stacks + 1] = itemStack
-								end
-							end
-							countItem.needed = countItem.needed - itemStack.count
-							if countItem.needed <= 0 then
-								counts[itemStack.name] = nil
-							end
-						end
-					end
-
-					if i.config.fill.onlyFilteredSlots and slotFilter ~= nil and itemStack.valid then
-						newRequestFromItemStack(requests, itemStack, slotFilter, i)
-					end
-				end
-
-				if i.config.fill.onlyInternalFilter then
-
-					local reserved = {}
-
-					function getEmptySlotNotReserved(name)
-						for slotIndex = 1, #invent do
-							if not reserved[slotIndex] then
-								local slot = invent[slotIndex]
-								local unfiltered = getFilterSafe(invent, slotIndex) == nil and not i.config.fill.onlyFilteredSlots
-								local filtered = name and (getFilterSafe(invent, slotIndex) == name or getFilterSafe(invent, slotIndex) == nil) and i.config.fill.onlyFilteredSlots
-								if (unfiltered or filtered) and not slot.valid_for_read then
-									reserved[slotIndex] = true
-									return slot
-								end
-							end
-						end
-						return nil
-					end
-
-					for k, v in pairs(counts) do
-						local emptyStack
-						while v.needed > 0 do
-							if v.stacks then
-								emptyStack = v.stacks[1]
-								v.stacks[1] = nil
-							elseif i.config.fill.onlyFilteredSlots then
-								emptyStack = getEmptySlotNotReserved(v.name)
-							else
-								emptyStack = getEmptySlotNotReserved()
-							end
-							if emptyStack ~= nil then
-								newRequestFromItemStack(requests, emptyStack, v.name, i)
-								v.needed = v.needed - ((emptyStack.valid_for_read and emptyStack.count) or v.prototype.stack_size)
-							else
-								v.needed = -1 --no space!
-							end
-						end
-					end
-				end
-			end
-		end
-		if not i.entity.valid then
-			floofTubes.inventories[_] = nil
-		end
-	end
-	local aaa = "aaa"
-	--fUtil.debug(aaa, "aaa")
-	return requestList
-end
-
-local function calc(available, needed, totalNeeded, max)
-	max = max or 50
-	if available >= totalNeeded then
-		local factor = needed / max
-		return factor / (available / max) * available
-	else
-		return ((available / totalNeeded) * totalNeeded) * (needed / totalNeeded)
-	end
-
-end
-
-local function processRequests(requestList)
-
-	local function inInternalFilter(internalFilter, internalKey)
-		for _, itemName in pairs(internalFilter) do
-			if itemName == internalKey then
-				return true
-			end
-		end
-		return false
-	end
-
-	function getValidItemCount(key, i, invent)
-
-		local totalCount = 0
-		local filteredSlots = i.config.pull.onlyFilteredSlots
-		local filteredInternal = i.config.pull.onlyInternalFilter
-		for slotIndex = 1, #invent do
-			local slot = invent[slotIndex]
-			if slot.valid_for_read and slot.name == key then
-				local a = (filteredSlots and getFilterSafe(invent, slotIndex) == key and not filteredInternal)
-				local b = (filteredInternal and inInternalFilter(i.config.pull.internalFilter, key) and not filteredSlots)
-				local c = (not filteredInternal and not filteredSlots) and getFilterSafe(invent, slotIndex) == nil
-				local d = (filteredInternal and filteredSlots) and (inInternalFilter(i.config.pull.internalFilter, key) or getFilterSafe(invent, slotIndex) == key)
-				if (a or b or c or d) then
-					totalCount = totalCount + slot.count
-				end
-			end
-		end
-		return totalCount
-	end
-
-	function removeValidItems(key, amount, i, invent)
-
-		local filteredSlots = i.config.pull.onlyFilteredSlots
-		local filteredInternal = i.config.pull.onlyInternalFilter
-		for slotIndex = 1, #invent do
-			local slot = invent[slotIndex]
-			if slot.valid_for_read and slot.name == key and slot.count ~= 0 then
-				local a = (filteredSlots and getFilterSafe(invent, slotIndex) == key and not filteredInternal)
-				local b = (filteredInternal and inInternalFilter(i.config.pull.internalFilter, key) and not filteredSlots)
-				local c = (not filteredInternal and not filteredSlots) and getFilterSafe(invent, slotIndex) == nil
-				local d = (filteredInternal and filteredSlots) and (inInternalFilter(i.config.pull.internalFilter, key) or getFilterSafe(invent, slotIndex) == key)
-				if (a or b or c or d) then
-
-					if slot.count > amount then
-						slot.count = slot.count - amount
-						amount = 0
-					else
-						amount = amount - slot.count
-						slot.clear()
-					end
-					if amount == 0 then return end
-				end
-			end
-		end
-	end
-
-	if not requestList then return end
-	for _, i in pairs(floofTubes.inventories) do
-		if i.entity and i.entity.valid and i.pull and requestList[i.entity.train.id] then
-			local requests = requestList[i.entity.train.id]
-			for requestKey, request in pairs(requests) do
-				for _, stack in pairs(request.stacks) do
-					if i.entity.unit_number ~= stack.source_unit_number then
-						local invent = i.inventory
-						local requestCount = getValidItemCount(requestKey, i, invent) -- invent.get_item_count(requestKey)
-						requestCount = math.min(requestCount, requestLimiter)
-						if requestCount ~= 0 then
-							local amount = 0
-							if requestCount >= request.totalNeeded then -- has more then/equal needed
-								amount = stack.needed
-
-							else -- has less than needed
-								amount = math.ceil(calc(requestCount, stack.needed, request.totalNeeded))
-							end
-							local amountToAdd = amount
-							if stack.item.count ~= 0 then
-								amountToAdd = stack.item.item.count + amount
-							end
-							local canSet = stack.item.item.can_set_stack({ name = requestKey, count = amountToAdd })
-							if canSet then
-								request.totalNeeded = request.totalNeeded - amount
-								stack.item.item.set_stack({ name = requestKey, count = amountToAdd })
-								removeValidItems(requestKey, amount, i, invent) --invent.remove({ name = requestKey, count = amount })
-							end
-						end
-
-
-
-					end
-				end
-			end
-		end
-	end
-end
-
 local function on_tick(event)
 
 	if event.tick % requestRate == 0 then
-		local requests = genRequests()
-		processRequests(requests)
+		local requests = floofLogic.genRequests()
+		floofLogic.processRequests(requests,requestLimiter)
 	end
 	if event.tick % 30 == 0 then
 		for _, i in pairs(floofTubes.players) do
 			if i.gui.tubeConfigWindow and i.gui.tubeConfigWindow.base ~= nil and i.gui.tubeConfigWindow.base.valid then
 				i.gui.tubeConfigWindow.base.bring_to_front()
+			end
+		end
+	end
+end
+
+
+local function on_entity_settings_pasted(event)
+	if event.source and event.source.valid and event.destination and event.destination.valid then
+		if floofTubes.inventories[event.source.unit_number] then
+			---@diagnostic disable-next-line:undefined-field
+			local config = table.deepcopy(floofTubes.inventories[event.source.unit_number].config)
+			local aaaaaaa = "aaaaaaaa"
+			if not floofTubes.inventories[event.destination.unit_number] then initEnt(event.destination) end
+			local invent = floofTubes.inventories[event.destination.unit_number]
+			invent.config = config
+		end
+	end
+end
+
+local function on_equipment_inserted(event)
+	if event.equipment and event.equipment.valid then
+		if event.equipment.name == "floof:conveyorTubeIn" or event.equipment.name == "floof:conveyorTubeOut" then
+			local invent = getInventoryFromGrid(event.grid)
+			if invent then
+				invent.pull = false
+				invent.fill = false
+				for _, equipment in pairs(invent.entity.grid.equipment) do
+					if equipment.name == "floof:conveyorTubeIn" then invent.pull = true end
+					if equipment.name == "floof:conveyorTubeOut" then invent.fill = true end
+				end
 			end
 		end
 	end
@@ -602,12 +415,15 @@ end
 local function on_load()
 	floofTubes = global.floofTubes
 	floofGui.floofTubes = global.floofTubes
+	floofLogic.floofTubes = global.floofTubes
 
 	requestLimiter = settings.global["floofTrainTubes-requestLimiter"].value
 	requestRate = settings.global["floofTrainTubes-requestRate"].value
 
 	script.on_event(defines.events.on_tick, on_tick)
 
+	script.on_event(defines.events.on_equipment_inserted, on_equipment_inserted)
+	script.on_event(defines.events.on_entity_settings_pasted, on_entity_settings_pasted)
 	script.on_event(defines.events.on_player_placed_equipment, on_player_placed_equipment)
 	script.on_event(defines.events.on_player_removed_equipment, on_player_removed_equipment)
 
@@ -622,13 +438,6 @@ local function on_load()
 	script.on_event(defines.events.on_player_joined_game, on_player_joined_game)
 end
 
-local function on_configuration_changed(event)
-	if not floofTubes.players then
-		floofTubes.players = {}
-	end
-
-end
-
 local function on_runtime_mod_setting_changed(event)
 	if event.setting_type == "runtime-global" then
 		if event.setting == "floofTrainTubes-requestLimiter" then
@@ -641,7 +450,6 @@ local function on_runtime_mod_setting_changed(event)
 end
 
 script.on_load(on_load)
-script.on_configuration_changed(on_configuration_changed)
 script.on_event(defines.events.on_runtime_mod_setting_changed, on_runtime_mod_setting_changed)
 
 script.on_init(on_init)
