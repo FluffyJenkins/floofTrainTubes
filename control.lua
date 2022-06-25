@@ -60,7 +60,7 @@ floofGui = require("scripts.floofGui")
 floofLogic = require("scripts.floofLogic")
 
 fUtil = require("scripts.floofUtils")
-fUtil.debugMode = true
+fUtil.debugMode = false
 
 local allowedNamed = { ["cargo-wagon"] = true, ["locomotive"] = true, ["artillery-wagon"] = true, ["fluid-wagon"] = true }
 
